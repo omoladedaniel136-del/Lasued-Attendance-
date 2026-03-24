@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LASUED Attendance Portal</title>
+  <style>
+    * { box-sizing:border-box; margin:0; padding:0; font-family:Arial,sans-serif; }
+    body { background:linear-gradient(135deg,#eaf4ff,#f9fcff); color:#1a1a1a; min-height:100vh; padding:20px; }
+    .container { max-width:900px; margin:auto; }
+    .card { background:#fff; border-radius:18px; box-shadow:0 10px 30px rgba(0,0,0,0.08); padding:24px; margin-bottom:20px; }
+    .header { text-align:center; margin-bottom:20px; }
+    .logo { width:110px; height:110px; object-fit:contain; margin-bottom:10px; border-radius:50%; background:#fff; }
+    .school-name { color:#005fa3; font-size:18px; font-weight:bold; margin-bottom:6px; }
+    .portal-title { color:#1e2a78; font-size:22px; font-weight:bold; line-height:1.4; margin-bottom:8px; }
+    .nav-buttons { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin:20px 0; }
+    .btn { border:none; padding:12px 18px; border-radius:10px; cursor:pointer; font-size:14px; font-weight:bold; transition:0.3s; }
+    .btn-primary { background:#005fa3; color:white; }
+    .btn-secondary { background:#1e2a78; color:white; }
+    .btn-danger { background:#d62828; color:white; border:none; padding:8px 12px; border-radius:8px; }
+    .form-group { margin-bottom:18px; }
+    label { display:block; font-weight:bold; margin-bottom:8px; }
+    input, select { width:100%; padding:14px; border:1px solid #cfd8e3; border-radius:10px; outline:none; }
+    .message { margin-top:15px; padding:12px; border-radius:10px; display:none; }
+    .success { background:#e7f9ee; color:#146c2e; border:1px solid #b7ebc6; }
+    .error { background:#ffeaea; color:#9b1c1c; border:1px solid #f5b5b5; }
+    .hidden { display:none; }
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td { padding:12px; border-bottom:1px solid #e6e6e6; text-align:left; }
+    th { background:#f3f8ff; color:#1e2a78; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="header">
+        <img src="lasued-logo.png" alt="LASUED Logo" class="logo" />
+        <div class="school-name">Lagos State University of Education (LASUED)</div>
+        <div class="portal-title">Computer Science Attendance Portal</div>
+      </div>
+      <div class="nav-buttons">
+        <button class="btn btn-primary" onclick="showPage('formPage')">Mark Attendance</button>
+        <button class="btn btn-secondary" onclick="showPage('recordsPage')">View Cloud Records</button>
+      </div>
+    </div>
+
+    <div id="formPage" class="card">
+      <form id="attendanceForm">
+        <div class="form-group">
+          <label>Full Name</label>
+          <input type="text" id="fullName" placeholder="Enter Name" required />
+        </div>
+        <div class="form-group">
+          <label>Matric Number</label>
+          <input type="text" id="matricNumber" placeholder="Enter Matric No" required />
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="status" required>
+            <option value="Present">Present</option>
+            <option value="Absent">Absent</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="attendanceDate" required />
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;">Submit to Firebase</button>
+      </form>
+      <div id="messageBox" class="message"></div>
+    </div>
+
+    <div id="recordsPage" class="card hidden">
+      <h2 style="text-align:center; color:#1e2a78;">Cloud Records</h2>
+      <div class="form-group">
+        <label>Filter by Date</label>
+        <input type="date" id="filterDate" onchange="renderRecords()" />
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Matric</th>
+              <th>Status</th>
+              <th>Time</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="recordsTableBody"></tbody>
+        </table>
+      </div>
+      <div id="emptyState" style="text-align:center; padding:20px;" class="hidden">No records found.</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, collection, addDoc, getDocs, query, where, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDrplpP5J04oHUAnb_5AOeMWtmCtKlRNOA",
+      authDomain: "lasued-attendance-platform.firebaseapp.com",
+      projectId: "lasued-attendance-platform",
+      storageBucket: "lasued-attendance-platform.firebasestorage.app",
+      messagingSenderId: "978746444553",
+      appId: "1:978746444553:web:57589b9ed7b06fef97e1d8"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const attendanceCol = collection(db, "attendance");
+
+    // Show/Hide Pages
+    window.showPage = function(pageId) {
+      document.getElementById("formPage").classList.add("hidden");
+      document.getElementById("recordsPage").classList.add("hidden");
+      document.getElementById(pageId).classList.remove("hidden");
+      if(pageId === 'recordsPage') renderRecords();
+    };
+
+    // Submit Attendance
+    const form = document.getElementById("attendanceForm");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById("messageBox");
+      
+      try {
+        await addDoc(attendanceCol, {
+          fullName: document.getElementById("fullName").value,
+          matricNumber: document.getElementById("matricNumber").value.toUpperCase(),
+          status: document.getElementById("status").value,
+          date: document.getElementById("attendanceDate").value,
+          dayKey: new Date(document.getElementById("attendanceDate").value).toDateString(),
+          timestamp: new Date().toISOString()
+        });
+        msg.textContent = "Attendance Saved to Cloud!";
+        msg.className = "message success";
+        msg.style.display = "block";
+        form.reset();
+      } catch (err) {
+        msg.textContent = "Firebase Error: " + err.message;
+        msg.className = "message error";
+        msg.style.display = "block";
+      }
+    });
+
+    // Render Records
+    window.renderRecords = async function() {
+      const tbody = document.getElementById("recordsTableBody");
+      const filter = document.getElementById("filterDate").value;
+      const selectedDayKey = filter ? new Date(filter).toDateString() : new Date().toDateString();
+      
+      tbody.innerHTML = "<tr><td colspan='5'>Loading...</td></tr>";
+      
+      const q = query(attendanceCol, where("dayKey", "==", selectedDayKey));
+      const snap = await getDocs(q);
+      
+      tbody.innerHTML = "";
+      if (snap.empty) {
+        document.getElementById("emptyState").classList.remove("hidden");
+      } else {
+        document.getElementById("emptyState").classList.add("hidden");
+        snap.forEach((docSnap) => {
+          const d = docSnap.data();
+          const row = `<tr>
+            <td>${d.fullName}</td>
+            <td>${d.matricNumber}</td>
+            <td>${d.status}</td>
+            <td>${new Date(d.timestamp).toLocaleTimeString()}</td>
+            <td><button class="btn-danger" onclick="deleteItem('${docSnap.id}')">Delete</button></td>
+          </tr>`;
+          tbody.innerHTML += row;
+        });
+      }
+    };
+
+    window.deleteItem = async function(id) {
+      if(confirm("Delete record?")) {
+        await deleteDoc(doc(db, "attendance", id));
+        renderRecords();
+      }
+    };
+  </script>
+</body>
+  </html>
+  
